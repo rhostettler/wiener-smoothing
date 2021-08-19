@@ -57,7 +57,7 @@ Nx = 4;
 xs = zeros(Nx, N, L);
 xhat_bpf = zeros(Nx, N, L);
 xhat_apf = xhat_bpf;
-xhat_2fs = xhat_bpf;
+xhat_afps = xhat_bpf;
 xhat_ffbsi = xhat_bpf;
 xhat_ksd = xhat_bpf;
 xhat_cpfas = xhat_bpf;
@@ -65,7 +65,7 @@ xhat_cpfas2 = xhat_bpf;
 
 t_bpf = zeros(1, L);
 t_apf = t_bpf;
-t_2fs = t_bpf;
+t_afps = t_bpf;
 t_ffbsi = t_bpf;
 t_ksd = t_bpf;
 t_cpfas = t_bpf;
@@ -77,20 +77,6 @@ fh = pbar(L);
 % parfor l = 1:L
 for l = 1:L
     %% Simulate the system
-%     x = model.px0.rand(1);
-%     ys = zeros(1, N);
-% 
-%     for n = 1:N
-%         % Propagate
-%         x = model.px.rand(x, t(n));
-%         r = sqrt(R)*randn(1);
-%         y = model.g(x, r, t(n));
-% 
-%         % Store
-%         xs(:, n, l) = x;
-%         ys(:, n) = y;   
-%     end
-%     y = ys;
     [x, y] = simulate_model(model, [], N);   % TODO: External function
 
     %% Estimate
@@ -104,12 +90,10 @@ for l = 1:L
     xhat_apf(:, :, l) = wiener_apf(model, y, [], Jf);
     t_apf(l) = toc(ts);
     
-if 0
     % 2FS
     ts = tic;
-    xhat_2fs(:, :, l) = wiener_2afs(ys, t, model, Jf);
-    t_2fs(l) = toc(ts);
-end
+    xhat_afps(:, :, l) = wiener_afps(model, y, [], Jf);
+    t_afps(l) = toc(ts);
     
 if 0
     % FFBSi
@@ -167,7 +151,7 @@ rms_ksd = mean(rms(e_ksd), 3);
 trmse_ksd = mean(trms(e_ksd));
 tstd_ksd = std(trms(e_ksd));
 
-e_2fs = xhat_2fs - xs;
+e_2fs = xhat_afps - xs;
 rms_2fs = mean(rms(e_2fs), 3);
 trmse_2fs = mean(trms(e_2fs));
 tstd_2fs = std(trms(e_2fs));
@@ -187,7 +171,7 @@ fprintf('\t\tRMSE\t\t\tTime\n')
 fprintf('\t\t----\t\t\t----\n');
 fprintf('Bootstrap PF:\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_bpf, tstd_bpf, mean(t_bpf), std(t_bpf));
 fprintf('Auxiliary PF:\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_apf, tstd_apf, mean(t_apf), std(t_apf));
-fprintf('2FS:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_2fs, tstd_2fs, mean(t_2fs), std(t_2fs));
+fprintf('2FS:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_2fs, tstd_2fs, mean(t_afps), std(t_afps));
 fprintf('FFBSi:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_ffbsi, tstd_ffbsi, mean(t_ffbsi), std(t_ffbsi));
 fprintf('KSD:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_ksd, tstd_ksd, mean(t_ksd), std(t_ksd));
 fprintf('CPF-AS:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_cpfas, tstd_cpfas, mean(t_cpfas), std(t_cpfas));
@@ -198,7 +182,7 @@ if export
     header = {'N', 'trmse', 'trmse_std', 't', 'tstd'};
     txtwrite('Results/bootstrap.txt', [Jf, trmse_bpf, tstd_bpf, mean(t_bpf), std(t_bpf)], header, [], true);
     txtwrite('Results/auxiliary.txt', [Jf, trmse_apf, tstd_apf, mean(t_apf), std(t_apf)], header, [], true);
-    txtwrite('Results/2fs.txt', [Jf, trmse_2fs, tstd_2fs, mean(t_2fs), std(t_2fs)], header, [], true);
+    txtwrite('Results/2fs.txt', [Jf, trmse_2fs, tstd_2fs, mean(t_afps), std(t_afps)], header, [], true);
     txtwrite('Results/ffbsi.txt', [Jf, trmse_ffbsi, tstd_ffbsi, mean(t_ffbsi), std(t_ffbsi)], header, [], true);
     txtwrite('Results/ksd.txt', [Jf, trmse_ksd, tstd_ksd, mean(t_ksd), std(t_ksd)], header, [], true);
     txtwrite(sprintf('Results/cpfas_k%d.txt', K), [Jf, trmse_cpfas, tstd_cpfas, mean(t_cpfas), std(t_cpfas)], header, [], true);

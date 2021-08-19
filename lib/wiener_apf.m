@@ -1,30 +1,52 @@
-function [xhat, Phat, sys] = wiener_apf(model, y, theta, J)
-% Gaussian approximation auxiliary particle filter for Wiener systems
+function [xhat, sys] = wiener_apf(model, y, theta, J)
+% # Auxiliary particle filter for Wiener state space models
+% ## Usage
+% * `xhat = wiener_apf(model, y, theta)`
+% * `[xhat, sys] = wiener_apf(model, y, theta, J)
+%
+% ## Description
+% (Approximately) fully adapted auxiliary particle filter for Wiener state 
+% space models with Gaussian approximation of the optimal adjustment
+% multipliers and proposal distribution according to [1].
+%
+% ## Input
+% * `model`: Model struct.
+% * `y`: Measurement matrix.
+% * `theta`: Optional parameters.
+% * `J`: Number of particles (optional, default: `100`).
+%
+% ## Output
+% * `xhat`: MMSE state estimate.
+% * `sys`: Particle system.
+%
+% ## References
+% * R. Hostettler and T. B. Schön, “Auxiliary-particle-filter-based two-
+%   filter smoothing for Wiener state-space models,” in 21th International 
+%   Conference on Information Fusion (FUSION), Cambridge, UK, July 2018
+%
+% ## Authors
+% * 2017-present -- Roland Hostettler
+
+%{
+% This file is free software: you can redistribute it and/or modify it 
+% under the terms of the GNU General Public License as published by thee 
+% Free Software Foundation, either version 3 of the License, or (at your
+% option) any later version.
 % 
-% SYNOPSIS
-%   [xhat, Phat] = wiener_gaapf(y, t, model)
-%   [xhat, Phat, sys] = wiener_gaapf(y, t, model)
-%
-% DESCRIPTION
-%   
-%
-% PROPERTIES
+% This file is distributed in the hope that it will be useful, but WITHOUT
+% ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
+% FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+% more details.
 % 
-%
-% SEE ALSO
-%
-%
-% VERSION
-%   2017-03-28
-% 
-% AUTHORS
-%   Roland Hostettler <roland.hostettler@aalto.fi>   
+% You should have received a copy of the GNU General Public License along 
+% with this file. If not, see <http://www.gnu.org/licenses/>.
+%}
 
 % TODO:
-% * decide how to deal with non-native functions
-% * clean up header
-% * add copyright
-    
+% * How to handle dependencies?
+% * Clean up. We can calculate almost everything in one for loop, the
+%   second should only be needed for sampling and weight calculation.
+
     %% Defaults
     narginchk(2, 4);
     if nargin < 3 || isempty(theta)
@@ -88,20 +110,13 @@ function [xhat, Phat, sys] = wiener_apf(model, y, theta, J)
         for j = 1:J
             mu_xp(:, j) = model.px.mean(x(:, j), theta(:, n));
             Q = model.px.cov([], theta(:, n));
-            mu_yp(:, j) = model.py.mean(x(:, j), theta(:, n));
-            Gx = model.py.jacobian(x(:, j), theta(:, n));
-            R = model.py.cov(x(:, j), theta(:, n));
-            
-            B(:, :, j) = Q*Gx';
-            S(:, :, j) = Gx*Q*Gx' + R;
-            S(:, :, j) = (S(:, :, j) + S(:, :, j)')/2;
+            [mu_yp(:, j), S(:, :, j), B(:, :, j)] = calculate_moments_taylor(model, x(:, j), theta(:, n));           
             K = B(:, :, j)/S(:, :, j);
             
             mu_xn(:, j) = mu_xp(:, j) + K*(y(:, n) - mu_yp(:, j));
             C_xn(:, :, j) = Q - K*S(:, :, j)*K';
             C_xn(:, :, j) = (C_xn(:, :, j) + C_xn(:, :, j)')/2;
 
-            % TODO: Another function to get a local copy of
             lv(j) = lw(j) + logmvnpdf(y(:, n), mu_yp(:, j), S(:, :, j));
         end
         
@@ -116,11 +131,11 @@ function [xhat, Phat, sys] = wiener_apf(model, y, theta, J)
             xn(:, j) = mu_xn(:, alpha(j)) + LC_xn*randn(dx, 1);
             
             L = B(:, :, alpha(j))'/Q;
-            mu = mu_yp(:, alpha(j)) + L*(xn(:, j) - mu_xp(:, alpha(j)));
-            Sigma = S(:, :, alpha(j)) - L*Q*L';
+            mu_yn = mu_yp(:, alpha(j)) + L*(xn(:, j) - mu_xp(:, alpha(j)));
+            Sigma_yn = S(:, :, alpha(j)) - L*Q*L';
             
             lw(j) = model.py.logpdf(y(:, n), xn(:, j), theta(:, n)) ...
-                - logmvnpdf(y(:, n), mu, Sigma);
+                - logmvnpdf(y(:, n), mu_yn, Sigma_yn);
         end
         x = xn;
         w = exp(lw-max(lw));
