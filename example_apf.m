@@ -1,24 +1,27 @@
 % Particle Smoothing Illustration for Wiener State-Space Systems
 %
-% Numerical illustration for the Wiener systems particle smoother with a
+% Numerical illustration of the Wiener systems particle smoother with a
 % Gaussian approximation of the optimal proposal from [1].
 %
 % References:
-%   [1] R. Hostettler and T. Sch??n, "Particle Filtering and Two Filter
+%   [1] R. Hostettler and T. B. Schon, "Particle Filtering and Two Filter
 %       Smoothing for Wiener State-Space Systems", to appear.
 % 
-% wiener_example.m -- 2017-06-19
-% Roland Hostettler <roland.hostettler@aalto.fi>
+% 2017-today -- Roland Hostettler
 
 % TODO:
-%   * Move this to main directory
-%   * Update reference above
-%   * Make a stripped down version of the whole thing for homepage (upon
-%     acceptance)
+% * Update code
+% * Add disclaimer
+% * Move this to main directory
+% * Update reference above
+% * Make a stripped down version of the whole thing for homepage (upon
+%   acceptance)
 
 % Housekeeping
 clear variables;
-addpath ~/Projects/smc-mcmc/src/
+addpath lib;
+rng(211);
+%addpath ~/Projects/smc-mcmc/src/
 
 %% Parameters
 export = false;      % Export the results (RMSE and runtime)
@@ -26,8 +29,8 @@ export = false;      % Export the results (RMSE and runtime)
 N = 100;            % No. of datapoints
 L = 100;            % No. of MC simulations
 
-Mf = 500;           % No. of particles in the filter, ...
-Ms = Mf/2;          % ...and in the smoother
+Jf = 500;           % No. of particles in the filter, ...
+Js = Jf/2;          % ...and in the smoother
 K = 10;             % No. of trajectories to draw in PGAS
 
 m0 = zeros(4, 1);   % Initial state
@@ -45,7 +48,7 @@ par_cpfas.Kmixing = 1;  % No extra mixing (mixes well)
 par_cpfas.filter = @(y, t, model, q, M, par) wiener_cpfas(y, t, model, M, par);
 
 %% Model
-model = nonmonotonic_model(Q, R, m0, P0);
+model = model_nonmonotonic(Q, R, m0, P0);
 
 %% Preallocate
 t = (1:N).';
@@ -71,62 +74,65 @@ t_cpfas2 = t_bpf;
 %% Simulate
 %eta(L);
 fh = pbar(L);
-parfor l = 1:L
-% for l = 1:L
+% parfor l = 1:L
+for l = 1:L
     %% Simulate the system
-    x = model.px0.rand(1);
-    ys = zeros(1, N);
-
-    for n = 1:N
-        % Propagate
-        x = model.px.rand(x, t(n));
-        r = sqrt(R)*randn(1);
-        y = model.g(x, r, t(n));
-
-        % Store
-        xs(:, n, l) = x;
-        ys(:, n) = y;   
-    end
-    y = ys;
+%     x = model.px0.rand(1);
+%     ys = zeros(1, N);
+% 
+%     for n = 1:N
+%         % Propagate
+%         x = model.px.rand(x, t(n));
+%         r = sqrt(R)*randn(1);
+%         y = model.g(x, r, t(n));
+% 
+%         % Store
+%         xs(:, n, l) = x;
+%         ys(:, n) = y;   
+%     end
+%     y = ys;
+    [x, y] = simulate_model(model, [], N);   % TODO: External function
 
     %% Estimate
     % Bootstrap PF
     ts = tic;
-    xhat_bpf(:, :, l) = bootstrap_pf(ys, t, model, Mf);
+    xhat_bpf(:, :, l) = pf(model, y, [], Jf);
     t_bpf(l) = toc(ts);
     
     % APF w/ approximation of the optimal proposal
     ts = tic;
-    xhat_apf(:, :, l) = wiener_gaapf(ys, t, model, Mf);
+    xhat_apf(:, :, l) = wiener_apf(model, y, [], Jf);
     t_apf(l) = toc(ts);
     
+if 0
     % 2FS
     ts = tic;
-    xhat_2fs(:, :, l) = wiener_2afs(ys, t, model, Mf);
+    xhat_2fs(:, :, l) = wiener_2afs(ys, t, model, Jf);
     t_2fs(l) = toc(ts);
+end
     
 if 0
     % FFBSi
     %model.px.fast = 0;
     ts = tic;
-    [~, ~, sys_ffbsi] = wiener_gaapf(ys, t, model, Mf);
-    [xhat_ffbsi(:, :, l), ~, sys_ffbsi] = ffbsi_ps(ys, t, model, [], Ms, par_ffbsi, sys_ffbsi);
+    [~, ~, sys_ffbsi] = wiener_gaapf(ys, t, model, Jf);
+    [xhat_ffbsi(:, :, l), ~, sys_ffbsi] = ffbsi_ps(ys, t, model, [], Js, par_ffbsi, sys_ffbsi);
     t_ffbsi(l) = toc(ts);
     
     % KSD
     ts = tic;
-    [~, ~, sys_ksd] = wiener_gaapf(ys, t, model, Mf);
-    xhat_ksd(:, :, l) = ksd_ps(ys, t, model, [], Mf, [], sys_ksd);
+    [~, ~, sys_ksd] = wiener_gaapf(ys, t, model, Jf);
+    xhat_ksd(:, :, l) = ksd_ps(ys, t, model, [], Jf, [], sys_ksd);
     t_ksd(l) = toc(ts);
 
     % CPF-AS
     ts = tic;
-    xhat_cpfas(:, :, l) = cpfas_ps(ys, t, model, [], Mf, K, par_cpfas);
+    xhat_cpfas(:, :, l) = cpfas_ps(ys, t, model, [], Jf, K, par_cpfas);
     t_cpfas(l) = toc(ts);
     
     % CPF-AS (2)
     ts = tic;
-    xhat_cpfas2(:, :, l) = cpfas_ps(ys, t, model, [], Mf, 2*K, par_cpfas);
+    xhat_cpfas2(:, :, l) = cpfas_ps(ys, t, model, [], Jf, 2*K, par_cpfas);
     t_cpfas2(l) = toc(ts);
 end
     
@@ -190,15 +196,15 @@ fprintf('CPF-AS (2):\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_cpfas2, tstd_cpfas2, me
 %% Export results
 if export
     header = {'N', 'trmse', 'trmse_std', 't', 'tstd'};
-    txtwrite('Results/bootstrap.txt', [Mf, trmse_bpf, tstd_bpf, mean(t_bpf), std(t_bpf)], header, [], true);
-    txtwrite('Results/auxiliary.txt', [Mf, trmse_apf, tstd_apf, mean(t_apf), std(t_apf)], header, [], true);
-    txtwrite('Results/2fs.txt', [Mf, trmse_2fs, tstd_2fs, mean(t_2fs), std(t_2fs)], header, [], true);
-    txtwrite('Results/ffbsi.txt', [Mf, trmse_ffbsi, tstd_ffbsi, mean(t_ffbsi), std(t_ffbsi)], header, [], true);
-    txtwrite('Results/ksd.txt', [Mf, trmse_ksd, tstd_ksd, mean(t_ksd), std(t_ksd)], header, [], true);
-    txtwrite(sprintf('Results/cpfas_k%d.txt', K), [Mf, trmse_cpfas, tstd_cpfas, mean(t_cpfas), std(t_cpfas)], header, [], true);
-    txtwrite(sprintf('Results/cpfas_k%d.txt', 2*K), [Mf, trmse_cpfas2, tstd_cpfas2, mean(t_cpfas2), std(t_cpfas2)], header, [], true);
+    txtwrite('Results/bootstrap.txt', [Jf, trmse_bpf, tstd_bpf, mean(t_bpf), std(t_bpf)], header, [], true);
+    txtwrite('Results/auxiliary.txt', [Jf, trmse_apf, tstd_apf, mean(t_apf), std(t_apf)], header, [], true);
+    txtwrite('Results/2fs.txt', [Jf, trmse_2fs, tstd_2fs, mean(t_2fs), std(t_2fs)], header, [], true);
+    txtwrite('Results/ffbsi.txt', [Jf, trmse_ffbsi, tstd_ffbsi, mean(t_ffbsi), std(t_ffbsi)], header, [], true);
+    txtwrite('Results/ksd.txt', [Jf, trmse_ksd, tstd_ksd, mean(t_ksd), std(t_ksd)], header, [], true);
+    txtwrite(sprintf('Results/cpfas_k%d.txt', K), [Jf, trmse_cpfas, tstd_cpfas, mean(t_cpfas), std(t_cpfas)], header, [], true);
+    txtwrite(sprintf('Results/cpfas_k%d.txt', 2*K), [Jf, trmse_cpfas2, tstd_cpfas2, mean(t_cpfas2), std(t_cpfas2)], header, [], true);
 end
 
 %% Save workspace
-filename = sprintf('Simulation Data/%s_Mf%d_Ms%d_K%d_L%d.mat', datestr(now, 'yyyymmdd_HHMM'), Mf, Ms, K, L);
+filename = sprintf('Simulation Data/%s_Mf%d_Ms%d_K%d_L%d.mat', datestr(now, 'yyyymmdd_HHMM'), Jf, Js, K, L);
 save(filename);
