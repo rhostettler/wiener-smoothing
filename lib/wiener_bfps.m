@@ -204,7 +204,10 @@ function [xhat, sys] = smooth(model, y, theta, sys)
         Cxp = (Cxp + Cxp')/2;
 
         %% Sample
-        [beta, lwb, rstate] = resample_ess(lwb);
+        [beta, ~, rstate] = resample_ess(lwb);
+        if rstate.r
+            lwb = -log(J)*ones(1, J);
+        end
         LCxp = chol(Cxp).';
         xp = mxp(:, beta) + LCxp*randn(dx, J);
         
