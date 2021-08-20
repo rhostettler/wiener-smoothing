@@ -80,7 +80,11 @@ function [xhat, sys] = smooth(model, y, theta, sys)
     [dx, J] = size(sys(1).x);
     xhat = zeros(dx, N);
     y = [NaN*ones(dy, 1), y];
-    theta = [NaN*ones(size(theta, 1)), theta];
+    [dtheta, Ntheta] = size(theta);
+    if Ntheta == 1
+        theta = theta*ones(1, N);
+    end
+    theta = [NaN*ones(dtheta, 1), theta];
     N = N+1;
     
     % Temporary variables
@@ -115,8 +119,8 @@ function [xhat, sys] = smooth(model, y, theta, sys)
     return_sys = nargout >= 2;
     if return_sys
         sys(N).xs = xs;
-        sys(N).wb = exp(lwb);
         sys(N).ws = ws;
+        sys(N).wb = exp(lwb);
     end
 
     %% Backward filter and smoothing
