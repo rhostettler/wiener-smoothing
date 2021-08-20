@@ -1,7 +1,7 @@
 function model = model_wiener(F, Q, g, Gx, R, m0, P0)
 % # Wiener state-space model
 % ## Usage
-% * `model = model_wiener(F, Q, g, R, m0, P0)`
+% * `model = model_wiener(F, Q, g, Gx, R, m0, P0)`
 %
 % ## Description
 % Defines the model structure for Wiener state-space models of the form
@@ -14,7 +14,7 @@ function model = model_wiener(F, Q, g, Gx, R, m0, P0)
 %
 % ## Input
 % * `F`, `Q`: Matrices of the dynamic model.
-% * `g`, `R`: Measurement model.
+% * `g`, `Gx`, `R`: Measurement model.
 % * `m0`, `P0`: Mean and covariance of the initial state.
 %
 % ## Output
@@ -23,7 +23,22 @@ function model = model_wiener(F, Q, g, Gx, R, m0, P0)
 %   py).
 %
 % ## Authors
-% 2018-today -- Roland Hostettler
+% 2018-present -- Roland Hostettler
+
+%{
+% This file is free software: you can redistribute it and/or modify it 
+% under the terms of the GNU General Public License as published by thee 
+% Free Software Foundation, either version 3 of the License, or (at your
+% option) any later version.
+% 
+% This file is distributed in the hope that it will be useful, but WITHOUT
+% ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
+% FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+% more details.
+% 
+% You should have received a copy of the GNU General Public License along 
+% with this file. If not, see <http://www.gnu.org/licenses/>.
+%}
 
     %% Defaults
     narginchk(7, 7);
@@ -59,8 +74,7 @@ function model = model_wiener(F, Q, g, Gx, R, m0, P0)
     
     
     % Likelihood
-    % TODO: Doesn't work if g() actually depends on theta.
-    dy = size(g(m0, []), 1);
+    dy = size(g(m0, []), 1); % TODO: Doesn't work if g() actually depends on theta.
     py = struct();
     py.rand = @(x, theta) g(x, theta) + chol(R(theta)).'*randn(dy, size(x, 2));
     py.logpdf = @(y, x, theta) logmvnpdf(y.', g(x, theta).', R(theta).').';

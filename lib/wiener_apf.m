@@ -84,8 +84,9 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
         sys(1).qstate = [];
 
         % Mean and covariance of p(x[n])
-        sys(1).mu = model.px0.mean([], []);
-        sys(1).Sigma = model.px0.cov([], []);
+        sys(1).mx = model.px0.mean([], []);
+        sys(1).Cxx = model.px0.cov([], []);
+        sys(1).Cax = [];
     end
     
     % (Local) helper variables
@@ -111,9 +112,9 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
         Cx = model.px.cov([], theta(:, n));
         for j = 1:J
             % Moments of the Gaussian joint approximation
-            %                                   _    _    _         _
-            %                           (x[n]  |  mx  |  |  Cx, Cxy  | )
-            % p(x[n], y[n] | x[n-1]) = N(y[n]; |_ my _|, |_ Cyx, Cy _| )
+            %                             _    _    _    _    _         _
+            %                           (| x[n] |  |  mx  |  |  Cx, Cxy  |)
+            % p(x[n], y[n] | x[n-1]) = N(|_y[n]_|; |_ my _|, |_ Cyx, Cy _|)
             % 
             [my(:, j), Cy(:, :, j), Cxy(:, :, j)] = calculate_moments_taylor(model, mx(:, j), Cx, theta(:, n));
             
@@ -123,9 +124,9 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
             %
             % with
             %
-            %   K = Cxy/Cy
-            %   mxp = mx + K*(y - my)
-            %   Cxp = Cx - K*Cy*K'
+            % K = Cxy/Cy
+            % mxp = mx + K*(y - my)
+            % Cxp = Cx - K*Cy*K'
             K = Cxy(:, :, j)/Cy(:, :, j);
             mxp(:, j) = mx(:, j) + K*(y(:, n) - my(:, j));
             Cxp(:, :, j) = Cx - K*Cy(:, :, j)*K';
@@ -165,9 +166,10 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
         % p(x[n]) = N(x[n]; sys(n).mu, sys(n).Sigma)
         if return_sys
             F = model.px.jacobian([], theta(:, n));
-            sys(n).mu = F*sys(n-1).mx;
-            Sigma = F*sys(n-1).Sigma*F' + Cx;
-            sys(n).Sigma = (Sigma + Sigma')/2;
+            sys(n).mx = F*sys(n-1).mx;      % Mean E{x[n]}
+            Cxx = F*sys(n-1).Cxx*F' + Cx;   % Covariance Cov{x[n]}
+            sys(n).Cxx = (Cxx + Cxx')/2;
+            sys(n).Cax = sys(n-1).Cxx*F';   % Cross-covariance Cov{x[n-1], x[n]}
         end
 
         %% Estimate & store results
