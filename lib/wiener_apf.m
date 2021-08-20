@@ -42,11 +42,6 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
 % with this file. If not, see <http://www.gnu.org/licenses/>.
 %}
 
-% TODO:
-% * How to handle dependencies?
-% * Clean up. We can calculate almost everything in one for loop, the
-%   second should only be needed for sampling and weight calculation.
-
     %% Defaults
     narginchk(2, 4);
     if nargin < 3 || isempty(theta)
@@ -82,7 +77,7 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
     % Particle system
     return_sys = (nargout >= 2);
     if return_sys
-        sys = initialize_sys(N, dx, J);     % TODO: function to copy here
+        sys = initialize_sys(N, dx, J);
         sys(1).alpha = 1:J;
         sys(1).x = x;
         sys(1).w = exp(lw);
@@ -95,64 +90,89 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
     
     % (Local) helper variables
     xhat = zeros(dx, N-1);
-    mu_xp = zeros(dx, J);
-    mu_yp = zeros(dy, J);
-    B = zeros(dx, dy, J);
-    S = zeros(dy, dy, J);
-    mu_xn = zeros(dx, J);
-    C_xn = zeros(dx, dx, J);
+    my = zeros(dy, J);          % Likelihood mean, covariance, and cross-
+    Cxy = zeros(dx, dy, J);     % covariance
+    Cy = zeros(dy, dy, J);   
+    mxp = zeros(dx, J);         % Proposal mean and covariance
+    Cxp = zeros(dx, dx, J);
+    
     lv = zeros(1, J);
-    xn = zeros(dx, J);
         
     %% Filtering
     for n = 2:N
-        %% Calculate joint approximations and resampling weights
+        %% Calculate the proposals
+        % Calculate the approximations of the adjustment multipliers and
+        % optimal proposal.
+        
+        % Prior mean and covariance. N.B.: The model is linear in the
+        % dynamics, hence, we can calculate the prior mean for all
+        % particles at once.
+        mx = model.px.mean(x, theta(:, n));
+        Cx = model.px.cov([], theta(:, n));
         for j = 1:J
-            mu_xp(:, j) = model.px.mean(x(:, j), theta(:, n));
-            Q = model.px.cov([], theta(:, n));
-            [mu_yp(:, j), S(:, :, j), B(:, :, j)] = calculate_moments_taylor(model, x(:, j), theta(:, n));           
-            K = B(:, :, j)/S(:, :, j);
+            % Moments of the Gaussian joint approximation
+            %                                   _    _    _         _
+            %                           (x[n]  |  mx  |  |  Cx, Cxy  | )
+            % p(x[n], y[n] | x[n-1]) = N(y[n]; |_ my _|, |_ Cyx, Cy _| )
+            % 
+            [my(:, j), Cy(:, :, j), Cxy(:, :, j)] = calculate_moments_taylor(model, mx(:, j), Cx, theta(:, n));
             
-            mu_xn(:, j) = mu_xp(:, j) + K*(y(:, n) - mu_yp(:, j));
-            C_xn(:, :, j) = Q - K*S(:, :, j)*K';
-            C_xn(:, :, j) = (C_xn(:, :, j) + C_xn(:, :, j)')/2;
+            % Moments of the Gaussian approximation of the optimal proposal
+            %
+            % p(x[n] | y[n], x[n-1]) = N(x[n]; mxp, Cxp)
+            %
+            % with
+            %
+            %   K = Cxy/Cy
+            %   mxp = mx + K*(y - my)
+            %   Cxp = Cx - K*Cy*K'
+            K = Cxy(:, :, j)/Cy(:, :, j);
+            mxp(:, j) = mx(:, j) + K*(y(:, n) - my(:, j));
+            Cxp(:, :, j) = Cx - K*Cy(:, :, j)*K';
+            Cxp(:, :, j) = (Cxp(:, :, j) + Cxp(:, :, j)')/2;
 
-            lv(j) = lw(j) + logmvnpdf(y(:, n), mu_yp(:, j), S(:, :, j));
+            % Resampling weights
+            lv(j) = lw(j) + logmvnpdf(y(:, n), my(:, j), Cy(:, :, j));
         end
         
         %% Resample
         v = exp(lv-max(lv));
         v = v/sum(v);
-        alpha = catrnd(v, [1, J]);       % TODO: Get local copy of the function
+        alpha = resample_stratified(v);
 
-        %% Draw new samples and calculate weigths
+        %% Sample states and calculate weights
         for j = 1:J
-            LC_xn = chol(C_xn(:, :, alpha(j))).';
-            xn(:, j) = mu_xn(:, alpha(j)) + LC_xn*randn(dx, 1);
+            % Sample from the optimal proposal approximation
+            LCxp = chol(Cxp(:, :, alpha(j))).';
+            x(:, j) = mxp(:, alpha(j)) + LCxp*randn(dx, 1);
             
-            L = B(:, :, alpha(j))'/Q;
-            mu_yn = mu_yp(:, alpha(j)) + L*(xn(:, j) - mu_xp(:, alpha(j)));
-            Sigma_yn = S(:, :, alpha(j)) - L*Q*L';
+            % Moments of the importance weights' denominator
+            %
+            % p(y[n] | x[n], x[n-1]) = N(y[n]; myp, Cyp)
+            L = Cxy(:, :, alpha(j))'/Cx;
+            myp = my(:, alpha(j)) + L*(x(:, j) - mx(:, alpha(j)));
+            Cyp = Cy(:, :, alpha(j)) - L*Cx*L';
             
-            lw(j) = model.py.logpdf(y(:, n), xn(:, j), theta(:, n)) ...
-                - logmvnpdf(y(:, n), mu_yn, Sigma_yn);
+            % Particle weights
+            lw(j) = model.py.logpdf(y(:, n), x(:, j), theta(:, n)) ...
+                - logmvnpdf(y(:, n), myp, Cyp);
         end
-        x = xn;
         w = exp(lw-max(lw));
         w = w/sum(w);
         lw = log(w);
         
-        %% Calculate mean and covariance of p(x[n])
+        %% Calculate mean and covariance of p(x[n])        
+        % p(x[n]) = N(x[n]; sys(n).mu, sys(n).Sigma)
         if return_sys
-            F = model.px.jacobian([], theta);
-            sys(n).mu = F*sys(n-1).mu;
-            Sigma = F*sys(n-1).Sigma*F' + Q;
+            F = model.px.jacobian([], theta(:, n));
+            sys(n).mu = F*sys(n-1).mx;
+            Sigma = F*sys(n-1).Sigma*F' + Cx;
             sys(n).Sigma = (Sigma + Sigma')/2;
         end
 
         %% Estimate & store results
         % MMSE state estimate
-        xhat(:, n-1) = xn*w';
+        xhat(:, n-1) = x*w';
                 
         %% Store
         if return_sys
