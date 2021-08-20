@@ -1,22 +1,23 @@
-% Two-Filter Bootstrap Particle Smoothing for Wiener State-Space Models
+% Two filter bootstrap particle smoothing for Wiener state-space models
 %
-% This is the second example in [1] where the two-filter particle smoother
+% This is the second example in [1] where the two filter particle smoother
 % is applied to a bearings-only tracking problem.
 %
 % [1] R. Hostettler, "A two filter particle smoother for Wiener state-space
 %     systems," in IEEE Conference on Control Applications (CCA), Sydney, 
 %     Australia, September 2015.
 % 
-% 2015-03-20 -- Roland Hostettler <roland.hostettler@ltu.se>
-% 2018-05-18 -- Roland Hostettler <roland.hostettler@aalto.fi>
+% 2015-present -- Roland Hostettler
 
 % Housekeeping
 clear variables;
+addpath lib;
+rng(1811);
 
 %% Parameters
 N = 40;     % No. of time samples
-K = 10;     % No. of Monte Carlo simulations
-M = 500;    % No. of particles
+K = 20;     % No. of Monte Carlo simulations
+J = 500;    % No. of particles
 Ts = 1;     % Sampling time
 
 %% Model
@@ -36,47 +37,33 @@ g = @(x, ~) [sqrt(x(1, :).^2 + x(2, :).^2); atan2(x(2, :), x(1, :))];
 R = diag([1 0.01]);
 
 % Complete model
-model = model_wiener_ssm(F, Q, g, R, m0, P0);
-
-%% Smoothing parameters
-par = struct();
-par.Mt = round(M/3);
+model = model_wiener(F, Q, g, [], R, m0, P0);
+model.py.fast = true;
 
 %% Simulation
-% Preallocate
-x = zeros([4, N+1, K]);
-y = zeros([2, N+1, K]);
-L0 = chol(P0).';
-Lq = chol(Q).';
-Lr = chol(R).';
-for k = 1:K
-    x(:, 1, k) = m0 + L0*randn([4, 1]);
-    for n = 2:N+1
-        x(:, n, k) = F*x(:, n-1, k) + Lq*randn([size(Q, 1), 1]);
-        y(:, n, k) = g(x(:, n, k)) + Lr*randn([size(R, 1), 1]);
-    end
-end
-t = (1:N)*Ts;
-x = x(:, 2:N+1, :);
-y = y(:, 2:N+1, :);
-
-%% Estimation
-xhat_2bfs = zeros([4, N, K]);
+% Pre-allocate
+x = zeros([4, N, K]);
+y = zeros([2, N, K]);
+xhat_bfps = zeros([4, N, K]);
 xhat_ffbsi = zeros([4, N, K]);
-t_tfps = zeros(1, K);
+t_bfps = zeros(1, K);
 t_ffbsi = zeros(1, K);
+
+% Monte Carlo simulation
 fh = pbar(K);
 for k = 1:K
-    % Two-filter smoother
+    % Generate data
+    [x(:, :, k), y(:, :, k)] = simulate_model(model, [], N);
+    
+    % Two filter smoother
     tstart = tic();
-    tmp = wiener_2bfs(y(:, :, k), t, model, M, par);
-    xhat_2bfs(:, :, k) = tmp(:, 2:end, :);
-    t_tfps(:, k) = toc(tstart);
+    xhat_bfps(:, :, k) = wiener_bfps(model, y(:, :, k), [], J);
+    t_bfps(k) = toc(tstart);
 
     % FFBSi
     tstart = tic();
-    xhat_ffbsi(:, :, k) = ffbsi_ps(y(:, :, k), t, model, 2*M, M, par);
-    t_ffbsi(:, k) = toc(tstart);
+    xhat_ffbsi(:, :, k) = ps(model, y(:, :, k), [], 2*J, J);
+    t_ffbsi(k) = toc(tstart);
     
     % Progress update
     pbar(k, fh);
@@ -84,22 +71,40 @@ end
 pbar(0, fh);
 
 %% Error
-e_tfps = x-xhat_2bfs;
+trms = @(e) squeeze(sqrt(mean(sum(e.^2, 1))));
+rms = @(e) sqrt(sum(e.^2, 1));
+
+e_bfps = x-xhat_bfps;
 e_ffbsi = x-xhat_ffbsi;
-mse_tfps = [mean(e_tfps(1, :, :).^2 + e_tfps(2, :, :).^2, 3); ...
-            mean(e_tfps(3, :, :).^2 + e_tfps(4, :, :).^2, 3)];
-mse_ffbsi = [mean(e_ffbsi(1, :, :).^2 + e_ffbsi(2, :, :).^2, 3); ...
-             mean(e_ffbsi(3, :, :).^2 + e_ffbsi(4, :, :).^2, 3)];
+
+rms_bfps = mean(rms(e_bfps), 3);
+trmse_bfps = mean(trms(e_bfps));
+tstd_bfps = std(trms(e_bfps));
+
+rms_ffbsi = mean(rms(e_ffbsi), 3);
+trmse_ffbsi = mean(trms(e_ffbsi));
+tstd_ffbsi = std(trms(e_ffbsi));
+
+%% Performance
+fprintf('\tRMSE\t\t\tTime\n')
+fprintf('\t----\t\t\t----\n');
+fprintf('BFPS:\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_bfps, tstd_bfps, mean(t_bfps), std(t_bfps));
+fprintf('FFBSi:\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_ffbsi, tstd_ffbsi, mean(t_ffbsi), std(t_ffbsi));
          
 %% Illustrations
+mse_bfps = [mean(e_bfps(1, :, :).^2 + e_bfps(2, :, :).^2, 3); ...
+            mean(e_bfps(3, :, :).^2 + e_bfps(4, :, :).^2, 3)];
+mse_ffbsi = [mean(e_ffbsi(1, :, :).^2 + e_ffbsi(2, :, :).^2, 3); ...
+             mean(e_ffbsi(3, :, :).^2 + e_ffbsi(4, :, :).^2, 3)];
+
 iExample = K;
 
 figure(1); clf();
 plot( ...
-    [x(1, :, iExample).', xhat_2bfs(1, :, iExample).', xhat_ffbsi(1, :, iExample).'], ...
-    [x(2, :, iExample).', xhat_2bfs(2, :, iExample).', xhat_ffbsi(2, :, iExample).'] ...
+    [x(1, :, iExample).', xhat_bfps(1, :, iExample).', xhat_ffbsi(1, :, iExample).'], ...
+    [x(2, :, iExample).', xhat_bfps(2, :, iExample).', xhat_ffbsi(2, :, iExample).'] ...
 );
-legend('Trajectory', '2BFS', 'FFBSi');
+legend('Trajectory', 'BFPS', 'FFBSi');
 
 figure(2); clf();
 subplot(211);
@@ -112,23 +117,23 @@ title('Bearing');
 figure(3); clf();
 for i = 1:4
     subplot(4, 1, i);
-    plot([mean(e_tfps(i, :, :), 3).', mean(e_ffbsi(i, :, :), 3).']);
-    legend('2BFS', 'FFBSi');
+    plot([mean(e_bfps(i, :, :), 3).', mean(e_ffbsi(i, :, :), 3).']);
+    legend('BFPS', 'FFBSi');
     title('Mean Error');
 end
 
 figure(4); clf();
 for i = 1:4
     subplot(4, 1, i);
-    semilogy([var(e_tfps(i, :, :), [], 3).', var(e_ffbsi(i, :, :), [], 3).']);
-    legend('2BFS', 'FFBSi');
+    plot([var(e_bfps(i, :, :), [], 3).', var(e_ffbsi(i, :, :), [], 3).']);
+    legend('BFPS', 'FFBSi');
     title('Mean Squared Error');
 end
 
 figure(5); clf();
 for i = 1:2
     subplot(2, 1, i);
-    semilogy([mse_tfps(i, :).', mse_ffbsi(i, :).'])
-    legend('2BFS', 'FFBSi');
+    plot([mse_bfps(i, :).', mse_ffbsi(i, :).'])
+    legend('BFPS', 'FFBSi');
     title('Mean Squared Error (Position and Speed)');
 end
