@@ -12,7 +12,7 @@ Wiener state space models from the following two publications:
    filter smoothing for Wiener state-space models,” in *21th International 
    Conference on Information Fusion (FUSION)*, Cambridge, UK, July 2018
   
-   [[Link](https://dx.doi.org/10.23919/ICIF.2018.8455323]) [[PDF](http://hostettler.co/assets/publications/2018-fusion-ps.pdf)]
+   [[Link](https://dx.doi.org/10.23919/ICIF.2018.8455323])] [[PDF](http://hostettler.co/assets/publications/2018-fusion-ps.pdf)]
 
 The examples are implemented in the following files:
 
