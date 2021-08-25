@@ -105,8 +105,8 @@ function sys = filter(model, y, theta, J)
     %% Filtering
     for n = 2:N
         % Sample
-        [xp, alpha, lq, qstate] = sample_bootstrap(model, y(:, n), x, lw, theta(:, n));
-        lw = calculate_weights(model, y(:, n), xp, alpha, lq, x, lw, theta(:, n));
+        [xp, alpha, lqx, lqalpha, qstate] = sample_bootstrap(model, y(:, n), x, lw, theta(:, n));
+        lw = calculate_weights(model, y(:, n), xp, alpha, lqx, lqalpha, x, lw, theta(:, n));
         w = exp(lw-max(lw));
         w = w/sum(w);
         lw = log(w);
