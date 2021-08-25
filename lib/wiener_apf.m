@@ -183,4 +183,9 @@ function [xhat, sys] = wiener_apf(model, y, theta, J)
             sys(n).w = w;
         end
     end
+    
+    %% Calculate joint filtering density
+    if return_sys
+        sys = calculate_particle_lineages(sys);
+    end
 end

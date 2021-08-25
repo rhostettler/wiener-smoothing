@@ -26,7 +26,6 @@
 % Housekeeping
 clear variables;
 addpath lib;
-% addpath external;
 rng(211);
 
 %% Parameters
@@ -42,17 +41,16 @@ P0 = eye(4);        % Initial covariance
 Q = 0.25^2*eye(4);  % Process noise covariance
 R = 0.1;            % Measurement noise covariance
 
-%% Smoother parameters
+% Model struct
+model = model_nonmonotonic(Q, R, m0, P0);
+
+%% Algorithm parameters
 par_ksd = struct('smooth', @smooth_ksd);
 
-% TODO: Update these when re-enabling
 % PGAS
-par_cpfas.Kburnin = 0;  % No burn-in (convergence is quite good)
-par_cpfas.Kmixing = 1;  % No extra mixing (mixes well)
-par_cpfas.filter = @(y, t, model, q, M, par) wiener_cpfas(y, t, model, M, par);
-
-%% Model
-model = model_nonmonotonic(Q, R, m0, P0);
+par_pgas.Kburnin = 0;  % No burn-in (convergence is quite good)
+par_pgas.Kmixing = 1;  % No extra mixing (mixes well)
+par_pgas.sample_states = @(y, xtilde, ~, theta) wiener_cpfas(model, y, xtilde, theta, Jf);
 
 %% Preallocate
 dx = 4;
@@ -107,17 +105,18 @@ for l = 1:L
     xhat_ksd(:, :, l) = ps(model, y, [], Jf, Js, par_ksd, sys_ksd);
     t_ksd(l) = toc(ts);
 
-if 0
+
     % CPF-AS
     ts = tic;
-    xhat_cpfas(:, :, l) = cpfas_ps(ys, t, model, [], Jf, K, par_cpfas);
+    tmp = gibbs_pmcmc(@(theta) model, y, [], [], K, par_pgas);
+    xhat_cpfas(:, :, l) = mean(tmp(:, 2:N+1, :), 3);
     t_cpfas(l) = toc(ts);
-    
+
     % CPF-AS (2)
     ts = tic;
-    xhat_cpfas2(:, :, l) = cpfas_ps(ys, t, model, [], Jf, 2*K, par_cpfas);
+    tmp = gibbs_pmcmc(@(theta) model, y, [], [], 2*K, par_pgas);
+    xhat_cpfas2(:, :, l) = mean(tmp(:, 2:N+1, :), 3);
     t_cpfas2(l) = toc(ts);
-end
     
     %% Show progress
     pbar(l, fh);
@@ -174,6 +173,6 @@ fprintf('KSD:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_ksd, tstd_ksd, mean(t_ksd), 
 fprintf('CPF-AS:\t\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_cpfas, tstd_cpfas, mean(t_cpfas), std(t_cpfas));
 fprintf('CPF-AS (2):\t%.2e (%.2e)\t%.3f (%.3f)\n', trmse_cpfas2, tstd_cpfas2, mean(t_cpfas2), std(t_cpfas2));
 
-% Save workspace
-% filename = sprintf('Simulation Data/%s_Mf%d_Ms%d_K%d_L%d.mat', datestr(now, 'yyyymmdd_HHMM'), Jf, Js, K, L);
+% Save simulation
+% filename = sprintf('Simulations/%s_Mf%d_Ms%d_K%d_L%d.mat', datestr(now, 'yyyymmdd_HHMM'), Jf, Js, K, L);
 % save(filename);
